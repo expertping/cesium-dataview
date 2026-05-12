@@ -90,6 +90,71 @@ export function useCesiumLayer(getViewer: () => any) {
   }
 
   /**
+   * 通用 WMS 服务加载，支持自定义参数（url、layers、parameters 等）
+   */
+  const addWMSLayer = (id: string, options: any) => {
+    const { index, ...providerOptions } = options
+    const provider = new Cesium.WebMapServiceImageryProvider({
+      ...providerOptions // 必须包含 url, layers 等关键参数
+    })
+    return addLayerToViewer(id, provider, index)
+  }
+
+  /**
+   * 添加 UOM 适飞区图层 (CAAC 民航局 WMS 服务)
+   * 中国民用航空局无人机运行管理系统 - 适飞空域数据
+   *
+   * @param codes - 行政区划代码数组，如 ['120000','130000','140000','150000']（华北）
+   *                不传则默认加载华北地区适飞区
+   *
+   * 常用区域代码参考：
+   *   华北: 120000,130000,140000,150000
+   *   华东: 310000,320000,330000,340000,350000,370000
+   *   华南: 440000,450000,460000
+   *   华中: 410000,420000,430000
+   *   西南: 500000,510000,520000,530000,540000
+   *   西北: 610000,620000,630000,640000,650000
+   *   东北: 210000,220000,230000
+   */
+  const addUOMLayer = (id: string, options: any = {}) => {
+    const { index, alpha = 0.9, codes, ...restOptions } = options
+
+    // 未传入 codes 时默认华北地区
+    const areaCodes: string[] = codes && codes.length > 0
+      ? codes
+      : ['120000', '130000', '140000', '150000']
+
+    // 按行政区划代码动态构建 layers 和 styles
+    const layerList = areaCodes.map((code: string) => `QGSFKYFW:sf${code}`).join(',')
+    const styleList = areaCodes.map(() => 'QGSFKYFW:shifeikongyu').join(',')
+
+    const layer = addWMSLayer(id, {
+      url: 'https://uom.caac.gov.cn/map/airspace/wms',
+      layers: layerList,
+      // 指定 Web Mercator 切片方案
+      tilingScheme: new Cesium.WebMercatorTilingScheme(),
+      parameters: {
+        token: '1e4b78fc-06bd-45be-8af7-cabd802ea9a8',
+        transparent: true,
+        format: 'image/png8',
+        styles: styleList,
+        version: '1.1.0',
+        srs: 'EPSG:3857',
+        ...restOptions.parameters
+      },
+      ...restOptions
+    })
+
+    if (layer) {
+      const viewer = getViewer()
+      layer.alpha = alpha
+      viewer?.scene.requestRender()
+    }
+
+    return layer
+  }
+
+  /**
    * 添加 ArcGIS MapServer 服务
    * ArcGIS Provider 较高版本使用异步加载 (fromUrl)
    */
@@ -212,7 +277,9 @@ export function useCesiumLayer(getViewer: () => any) {
   return {
     addXYZLayer,
     addWMTSLayer,
+    addWMSLayer,
     addArcGISLayer,
+    addUOMLayer,
     setLayerVisibility,
     setLayerOpacity,
     moveLayerUp,

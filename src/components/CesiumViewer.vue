@@ -29,6 +29,13 @@
     <button @click="kmlTools.clearAllKml()">清空 KML</button>
 
     <span class="divider">|</span>
+    <span class="axis-label">UOM:</span>
+    <button @click="onLoadUOM" :disabled="uomLoaded" class="btn-uom">
+      {{ uomLoaded ? '已加载' : '适飞区' }}
+    </button>
+    <button @click="onClearUOM" :disabled="!uomLoaded">清除UOM</button>
+
+    <span class="divider">|</span>
     <button @click="onUrlLoad" :disabled="isLoading" class="btn-tiff">
       {{ isLoading ? '解析中...' : '加载单波段 TIFF' }}
     </button>
@@ -164,6 +171,7 @@ import { useCesiumKml } from '../hooks/useCesiumkml'
 import { useCesiumTiffPolygon } from '../hooks/useCesiumGeoTiff'
 import type { StretchMode, ColorMap } from '../hooks/useCesiumGeoTiff'
 import { useCesiumTimelineLayerSwitch } from '../hooks/useCesiumTimelineLayerSwitch'
+import { useCesiumLayer } from '../hooks/useCesiumLayer'
 import { useWktIntersection } from '../hooks/useWktIntersection'
 import { useNadirAreaTrackAnalysis } from '../hooks/useNadirAreaTrackAnalysis'
 import { useCogTif } from '../hooks/useCogTif'
@@ -180,10 +188,25 @@ const controls = useCesiumControls(getViewer)
 const kmlTools = useCesiumKml(getViewer)
 const tiffTools = useCesiumTiffPolygon(getViewer)
 const cogTools = useCogTif(getViewer)
+const layerTools = useCesiumLayer(getViewer)
 const layerAxis = useCesiumTimelineLayerSwitch(getViewer)
 const axisItems = layerAxis.axisItemsSorted
 const activeAxisId = layerAxis.activeItemId
 const axisDemoEntities: Cesium.Entity[] = []
+
+// ================= UOM 适飞区 =================
+const uomLayerId = 'uom-flyzone'
+const uomLoaded = ref(false)
+
+const onLoadUOM = () => {
+  const result = layerTools.addUOMLayer(uomLayerId, { codes: ['440000', '450000', '460000'] })
+  if (result) uomLoaded.value = true
+}
+
+const onClearUOM = () => {
+  layerTools.removeLayer(uomLayerId)
+  uomLoaded.value = false
+}
 
 const initTimelineLayerDemo = async () => {
   const viewer = getViewer()
@@ -294,6 +317,7 @@ onUnmounted(() => {
   controls.destroyControls()
   tiffTools.destroyTiffTools() // 全局销毁
   cogTools.destroyCogTools()   // COG 销毁
+  layerTools.removeAllLayers()
   layerAxis.clearItems(false)
   const viewer = getViewer()
   if (viewer) axisDemoEntities.forEach((entity) => viewer.entities.remove(entity))
@@ -579,6 +603,7 @@ button, select {
 }
 button:hover { background: #555; }
 .btn-tiff { background: #2b83ba; border-color: #2b83ba; }
+.btn-uom { background: #059669; border-color: #059669; }
 .btn-danger { background: #d7191c; border-color: #d7191c; }
 .divider { color: #666; font-weight: bold; margin: 0 4px; }
 .axis-label { color: #ccc; font-size: 12px; }
