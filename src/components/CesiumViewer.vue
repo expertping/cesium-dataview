@@ -19,6 +19,12 @@
     <button @click="wktTools.clearIntersection('my-intersection')">清除裁剪范围</button>
     <button @click="runNadirDemo()">星下点轨迹示例</button>
     <button @click="clearNadirDemo()">清理星下点轨迹</button>
+    <button @click="runOrbitFovDemo()">卫星轨道视锥</button>
+    <button @click="orbitFovTools.clearVisualization(); orbitFovActive = false">清除轨道视锥</button>
+    <label class="roll-control" v-if="orbitFovActive">
+      LANDSAT侧摆：<input type="range" min="-45" max="45" step="1" v-model.number="landsatRoll" @input="onLandsatRollChange" />
+      <span>{{ landsatRoll }}°</span>
+    </label>
     <input 
       type="file" 
       ref="fileInputRef" 
@@ -174,6 +180,7 @@ import { useCesiumTimelineLayerSwitch } from '../hooks/useCesiumTimelineLayerSwi
 import { useCesiumLayer } from '../hooks/useCesiumLayer'
 import { useWktIntersection } from '../hooks/useWktIntersection'
 import { useNadirAreaTrackAnalysis } from '../hooks/useNadirAreaTrackAnalysis'
+import { useSatelliteOrbitFov } from '../hooks/useSatelliteOrbitFov'
 import { useCogTif } from '../hooks/useCogTif'
 import type { CogColorMap as CogCMap, CogStretchMode as CogSMode, CogRenderMode } from '../hooks/useCogTif'
 import CogLegend from './CogLegend.vue'
@@ -188,6 +195,7 @@ const controls = useCesiumControls(getViewer)
 const kmlTools = useCesiumKml(getViewer)
 const tiffTools = useCesiumTiffPolygon(getViewer)
 const cogTools = useCogTif(getViewer)
+const orbitFovTools = useSatelliteOrbitFov(getViewer)
 const layerTools = useCesiumLayer(getViewer)
 const layerAxis = useCesiumTimelineLayerSwitch(getViewer)
 const axisItems = layerAxis.axisItemsSorted
@@ -314,6 +322,7 @@ onUnmounted(() => {
   drawTools.destroyDraw()
   measureTools.clearAllMeasurements()
   nadirAreaTools.clearLastAnalysis()
+  orbitFovTools.destroy()
   controls.destroyControls()
   tiffTools.destroyTiffTools() // 全局销毁
   cogTools.destroyCogTools()   // COG 销毁
@@ -457,6 +466,47 @@ const runNadirDemo = async () => {
 
 const clearNadirDemo = () => {
   nadirAreaTools.clearLastAnalysis()
+}
+
+const orbitFovDemoTle1 = `ISS (ZARYA)
+1 61906U 24205N   25285.31572638  .00024486  00000+0  92944-3 0  9996
+2 61906  97.4403   0.1773 0011256 192.0607 168.0364 15.26772231 50918`
+
+const orbitFovDemoTle2 = `LANDSAT 9
+1 49260U 21088A   25284.91234567  .00000120  00000+0  30000-4 0  9991
+2 49260  98.2200  45.6789 0001234  85.4321 274.7654 14.57112345 12345`
+
+const runOrbitFovDemo = () => {
+  orbitFovTools.startVisualization({
+    satellites: [
+      {
+        name: 'ISS',
+        tle: orbitFovDemoTle1,
+        fovAlongDeg: 2.4,
+        fovCrossDeg: 3.6,
+        rollDeg: 0
+      },
+      {
+        name: 'LANDSAT-9',
+        tle: orbitFovDemoTle2,
+        fovAlongDeg: 7.5,
+        fovCrossDeg: 7.5,
+        rollDeg: landsatRoll.value,
+        color: Cesium.Color.YELLOW
+      }
+    ],
+    durationMinutes: 90,
+    stepSeconds: 30,
+    animationSpeed: 60
+  })
+  orbitFovActive.value = true
+}
+
+const orbitFovActive = ref(false)
+const landsatRoll = ref(10)
+
+const onLandsatRollChange = () => {
+  orbitFovTools.updateSatelliteParam(1, { rollDeg: landsatRoll.value })
 }
 
 const wktstring = ref('POLYGON ((-115.081689 32.359361, -114.332064 32.238461, -114.498986 31.573281, -115.243068 31.693724, -115.081689 32.359361))')
@@ -640,5 +690,14 @@ button:hover { background: #555; }
   position: absolute; bottom: 0; left: 0; width: 100%; z-index: 999;
   background: rgba(20, 20, 20, 0.75); color: #ddd; padding: 6px 20px;
   font-family: monospace; font-size: 13px; backdrop-filter: blur(4px);
+}
+.roll-control {
+  display: flex; align-items: center; gap: 6px; color: #ccc; font-size: 12px;
+}
+.roll-control input[type="range"] {
+  width: 100px; cursor: pointer;
+}
+.roll-control span {
+  min-width: 36px; text-align: right; font-weight: 600; color: #4ade80;
 }
 </style>
