@@ -144,6 +144,50 @@
 
       <button @click="clearCogData" class="btn-danger">清除 COG</button>
     </template>
+
+    <span class="divider">|</span>
+    <span class="axis-label">3D热力图:</span>
+    <button @click="onHeatmapLoad" :disabled="heatmapLoading" class="btn-tiff">
+      {{ heatmapLoading ? '加载中...' : '加载热力图' }}
+    </button>
+    <template v-if="heatmapLoaded && heatmapInfo">
+      <select v-model.number="heatmapConfig.bandIndex" @change="applyHeatmapUpdate" title="波段">
+        <option v-for="b in heatmapBandOptions" :key="b" :value="b">Band {{ b + 1 }}</option>
+      </select>
+
+      <div class="colormap-picker">
+        <div class="color-item" :class="{ active: heatmapConfig.colormap === 'gray' }" @click="selectHeatmapColorMap('gray')" title="灰度">
+          <div class="gradient gradient-gray"></div>
+        </div>
+        <div class="color-item" :class="{ active: heatmapConfig.colormap === 'jet' }" @click="selectHeatmapColorMap('jet')" title="彩虹">
+          <div class="gradient gradient-jet"></div>
+        </div>
+        <div class="color-item" :class="{ active: heatmapConfig.colormap === 'hot' }" @click="selectHeatmapColorMap('hot')" title="热力">
+          <div class="gradient gradient-hot"></div>
+        </div>
+        <div class="color-item" :class="{ active: heatmapConfig.colormap === 'terrain' }" @click="selectHeatmapColorMap('terrain')" title="地形">
+          <div class="gradient gradient-terrain"></div>
+        </div>
+      </div>
+
+      <select v-model="heatmapConfig.stretch" @change="applyHeatmapUpdate">
+        <option value="minmax">极值拉伸</option>
+        <option value="stddev">标准差拉伸</option>
+        <option value="percent">百分比拉伸</option>
+      </select>
+
+      <label class="roll-control">
+        高度:<input type="range" min="100" max="50000" step="100" v-model.number="heatmapConfig.heightScale" @input="applyHeatmapUpdate" />
+        <span>{{ heatmapConfig.heightScale }}m</span>
+      </label>
+
+      <label class="roll-control">
+        基准:<input type="range" min="0" max="10000" step="100" v-model.number="heatmapConfig.baseHeight" @input="applyHeatmapUpdate" />
+        <span>{{ heatmapConfig.baseHeight }}m</span>
+      </label>
+
+      <button @click="clearHeatmap" class="btn-danger">清除热力图</button>
+    </template>
   </div>
 
   <div id="cesiumContainer" class="w-full h-full">
@@ -183,6 +227,8 @@ import { useNadirAreaTrackAnalysis } from '../hooks/useNadirAreaTrackAnalysis'
 import { useSatelliteOrbitFov } from '../hooks/useSatelliteOrbitFov'
 import { useCogTif } from '../hooks/useCogTif'
 import type { CogColorMap as CogCMap, CogStretchMode as CogSMode, CogRenderMode } from '../hooks/useCogTif'
+import { useCogHeatmap } from '../hooks/useCogHeatmap'
+import type { CogColorMap as HeatmapCMap, CogStretchMode as HeatmapSMode } from '../hooks/useCogHeatmap'
 import CogLegend from './CogLegend.vue'
 
 const { getViewer, initmap, destroyCesium } = useCesium()
@@ -195,6 +241,7 @@ const controls = useCesiumControls(getViewer)
 const kmlTools = useCesiumKml(getViewer)
 const tiffTools = useCesiumTiffPolygon(getViewer)
 const cogTools = useCogTif(getViewer)
+const heatmapTools = useCogHeatmap(getViewer)
 const orbitFovTools = useSatelliteOrbitFov(getViewer)
 const layerTools = useCesiumLayer(getViewer)
 const layerAxis = useCesiumTimelineLayerSwitch(getViewer)
@@ -326,6 +373,7 @@ onUnmounted(() => {
   controls.destroyControls()
   tiffTools.destroyTiffTools() // 全局销毁
   cogTools.destroyCogTools()   // COG 销毁
+  heatmapTools.destroyHeatmapTools()
   layerTools.removeAllLayers()
   layerAxis.clearItems(false)
   const viewer = getViewer()
@@ -605,6 +653,89 @@ const clearCogData = () => {
   cogTools.removeCogLayer(currentCogId)
   cogLoaded.value = false
   cogInfo.value = null
+}
+
+// ═══════════ 3D 热力图 ═══════════
+const heatmapLoading = ref(false)
+const heatmapLoaded = ref(false)
+const currentHeatmapId = 'heatmap-01'
+const heatmapUrl = ref('http://192.168.5.221:9000/chla_cog.tiff')
+const heatmapConfig = reactive({
+  bandIndex: 0,
+  colormap: 'jet' as HeatmapCMap,
+  stretch: 'minmax' as HeatmapSMode,
+  heightScale: 5000,
+  baseHeight: 0,
+  gridSize: 256,
+  opacity: 1
+})
+const heatmapInfo = ref<{
+  bandCount: number
+  gridW: number
+  gridH: number
+  stats: { min: number; max: number; mean: number; stddev: number }
+} | null>(null)
+
+const heatmapBandOptions = computed(() => {
+  const count = heatmapInfo.value?.bandCount ?? 1
+  return Array.from({ length: count }, (_, i) => i)
+})
+
+const onHeatmapLoad = async () => {
+  let url = heatmapUrl.value
+  if (!url) {
+    url = prompt('请输入 COG TIF 文件 URL:') || ''
+    if (!url) return
+    heatmapUrl.value = url
+  }
+  heatmapLoading.value = true
+  try {
+    const info = await heatmapTools.addHeatmap(currentHeatmapId, url, {
+      bandIndex: heatmapConfig.bandIndex,
+      colormap: heatmapConfig.colormap,
+      stretch: heatmapConfig.stretch,
+      heightScale: heatmapConfig.heightScale,
+      baseHeight: heatmapConfig.baseHeight,
+      gridSize: heatmapConfig.gridSize,
+      opacity: heatmapConfig.opacity,
+      flyTo: true
+    })
+    heatmapLoaded.value = true
+    heatmapInfo.value = {
+      bandCount: info.bandCount,
+      gridW: info.gridW,
+      gridH: info.gridH,
+      stats: info.stats
+    }
+    console.log('3D 热力图加载成功:', info)
+  } catch (err) {
+    console.error('3D 热力图加载失败:', err)
+    alert('3D 热力图加载失败')
+  } finally {
+    heatmapLoading.value = false
+  }
+}
+
+const applyHeatmapUpdate = () => {
+  heatmapTools.updateHeatmap(currentHeatmapId, {
+    bandIndex: heatmapConfig.bandIndex,
+    colormap: heatmapConfig.colormap,
+    stretch: heatmapConfig.stretch,
+    heightScale: heatmapConfig.heightScale,
+    baseHeight: heatmapConfig.baseHeight,
+    opacity: heatmapConfig.opacity
+  })
+}
+
+const selectHeatmapColorMap = (cmap: HeatmapCMap) => {
+  heatmapConfig.colormap = cmap
+  applyHeatmapUpdate()
+}
+
+const clearHeatmap = () => {
+  heatmapTools.removeHeatmap(currentHeatmapId)
+  heatmapLoaded.value = false
+  heatmapInfo.value = null
 }
 
 const draw_Ins = async () => {

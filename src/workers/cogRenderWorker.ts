@@ -134,6 +134,7 @@ self.onmessage = async (e: MessageEvent) => {
       case 'open':        await handleOpen(msg); break
       case 'renderTile':  await handleRenderTile(msg); break
       case 'calcStats':   await handleCalcStats(msg); break
+      case 'readBand':    await handleReadBand(msg); break
       case 'close':       handleClose(msg); break
     }
   } catch (err: unknown) {
@@ -612,6 +613,50 @@ async function handleCalcStats(msg: {
   self.postMessage({
     type: 'statsResult', requestId: msg.requestId, stats: result
   })
+}
+
+async function handleReadBand(msg: {
+  requestId: number
+  id: string
+  bandIndex: number
+  gridSize: number
+}) {
+  const layer = layers.get(msg.id)
+  if (!layer) {
+    self.postMessage({ type: 'error', requestId: msg.requestId, error: 'Layer not found' })
+    return
+  }
+
+  const { images, image, width, height, noDataValue } = layer
+  const gridW = Math.min(msg.gridSize, width)
+  const gridH = Math.min(msg.gridSize, height)
+
+  // 选择最小的、分辨率仍 >= gridSize 的概览级别
+  let selectedImage = image
+  for (let i = images.length - 1; i >= 0; i--) {
+    if (images[i].getWidth() >= gridW && images[i].getHeight() >= gridH) {
+      selectedImage = images[i]
+      break
+    }
+  }
+
+  const rasters = await selectedImage.readRasters({
+    width: gridW,
+    height: gridH,
+    samples: [msg.bandIndex],
+    interleave: false
+  })
+
+  const raw = rasters[0] as ArrayLike<number>
+  const data = raw instanceof Float32Array ? raw : new Float32Array(raw as any)
+
+  // 计算该波段统计值
+  const stats = calculateBandStats(data, noDataValue)
+
+  self.postMessage(
+    { type: 'readBandResult', requestId: msg.requestId, data, width: gridW, height: gridH, stats },
+    [data.buffer] as any
+  )
 }
 
 // ---------- close ----------
